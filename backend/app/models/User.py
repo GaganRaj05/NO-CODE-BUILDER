@@ -28,7 +28,7 @@ class Users(Document):
     updated_at: Optional[datetime] = None
     subscriptionTiers: SubscriptionTiers
     usageStats: UsageStats = Field(default_factory=UsageStats)
-    
+    password: str
     class Settings:
         name="Users"
         indexes = ["email","_id"]
