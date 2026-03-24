@@ -6,7 +6,9 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from app.core.config import FRONTEND_URL
 from app.core.logging_config import setup_logging
+from app.services.redis import init_redis_pool, close_redis_pool
 from app.routes import auth
+
 
 import logging
 
@@ -17,8 +19,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await startup_db()
+    await init_redis_pool(app)
     yield
     await close_connection()
+    await close_redis_pool(app)
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(

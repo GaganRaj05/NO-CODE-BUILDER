@@ -9,7 +9,7 @@ class AuthProvider(str, Enum):
 
 class UserSignUp(BaseModel):
     name: str = Field(..., min_length=5, description="Name Text")
-    email: EmailStr
+    email: Optional[EmailStr] = None
     authProvider: AuthProvider
     google_token: Optional[str] = None
     password: Optional[str] = Field(None, min_length=8)
@@ -29,3 +29,10 @@ class UserSignIn(BaseModel):
     email:EmailStr 
     password:str = Field(..., min_length = 8)
     
+class EmailVerification(BaseModel):
+    email:EmailStr
+    otp:str
+    
+
+class GoogleAuth(BaseModel):
+    google_token:str
