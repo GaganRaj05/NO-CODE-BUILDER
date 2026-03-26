@@ -26,14 +26,62 @@ class Question(BaseModel):
     required: bool = True
 
 class AnsweredQuestion(BaseModel):
-    qustion_id:str
+    question_id:str
     question:str
     category: RequirementCategory
     type:QuestionType
-    answer:str
+    answer:Any
 
 class RequirementContext(BaseModel):
-    tenant_id: str
+    user_id: str
     session_id:str
     current_question_id: Optional[str] = None
-    answered_questions: AnsweredQuestion
+    answered_questions: List[AnsweredQuestion] = Field(default_factory=list)
+    pending_questions: List[Question] = Field(default_factory=list)
+    last_updated: datetime = Field(default_factory = datetime.utcnow()) 
+    confidence_score: Dict[str, float] = Field(default_factory = dict)
+    clarrifications_needed: List[Dict[str, Any]] = Field(default_factory = list)
+    
+class Page(BaseModel):
+    name: str
+    route: str
+    auth_required: bool
+
+class Component(BaseModel):
+    name: str
+    props: Dict[str, Any]
+class FrontendSpec(BaseModel):
+    framework: str
+    ui_library: Optional[str] = None
+    pages: List[Page]
+    components: List[Component]
+    state_management: Optional[str] = None
+    routing: Dict[str, Any]
+    api_integrations: List[Dict[str, Any]]
+    styling: Dict[str, Any]
+    responsive_design: bool
+    
+class BackendSpec(BaseModel):
+    framework: str
+    database: Dict[str, Any]
+    api_endpoints: List[Dict[str, Any]]
+    authentication: Dict[str, Any]
+    authorization: Dict[str, Any]
+    business_logic: List[Dict[str, Any]]
+    caching: Optional[Dict[str, Any]]
+    queue_system: Optional[Dict[str, Any]]
+    logging: Dict[str, Any]
+    monitoring: Dict[str, Any]
+    deployment: Dict[str, Any]
+
+
+class CompleteSpec(BaseModel):
+    project_name: str
+    description: str
+    version: str
+    created_at: datetime
+    frontend: FrontendSpec
+    backend: BackendSpec
+    integration_points: List[Dict[str, Any]]
+    constraints: List[str]
+    assumptions: List[str]
