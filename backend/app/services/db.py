@@ -3,6 +3,8 @@ import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
 from app.models.User import Users
+from app.models.Tenants import Tenants
+from app.models.Membership import Membership
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,9 @@ async def startup_db():
         await init_beanie(
             database= client[MONGODB_NAME],
             document_models= [
-                Users
+                Users,
+                Tenants,
+                Membership
             ]
         )
         logger.info("MongoDB connection successfull")

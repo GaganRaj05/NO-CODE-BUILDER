@@ -12,7 +12,7 @@ class UserSignUp(BaseModel):
     email: Optional[EmailStr] = None
     authProvider: AuthProvider
     google_token: Optional[str] = None
-    password: Optional[str] = Field(None, min_length=8)
+    password: Optional[str] = Field(..., min_length=8)
     
 
     @model_validator(mode="after")

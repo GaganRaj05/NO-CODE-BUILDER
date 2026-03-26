@@ -14,20 +14,19 @@ class SubscriptionTiers(str, Enum):
     PRO = "pro"
 
 class UsageStats(BaseModel):
-    projectsCreated:int = 0
-    totatlGenerations:int = 0
-    lastActivateAt: datetime = Field(default_factory=datetime.utcnow)
+    projects_created:int = 0
+    total_generations:int = 0
+    last_active_at: datetime = Field(default_factory=datetime.utcnow)
     
-
 class Users(Document):
     name:str
     email:str = Indexed(str, unique=True)
-    authProvider:AuthProvider
+    auth_provider:AuthProvider
     google_id:Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
-    subscriptionTiers: SubscriptionTiers
-    usageStats: UsageStats = Field(default_factory=UsageStats)
+    subscription_tiers: SubscriptionTiers
+    usage_stats: UsageStats = Field(default_factory=UsageStats)
     password: str
     class Settings:
         name="Users"

@@ -12,6 +12,8 @@ from jose import jwt
 from datetime import datetime, timedelta
 import redis.asyncio as redis
 import random
+from app.models.Tenants import Tenants, TenantType
+from app.models.Membership import Membership, Role
 
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
@@ -99,13 +101,29 @@ async def sign_up(data: UserSignUp):
         user = Users(
             name=data.name,
             email=data.email,
-            authProvider="email",
+            auth_provider="email",
             google_id=None,
-            subscriptionTiers="free",
+            subscription_tiers="free",
             password=hashed_pw
         )
 
-        await user.insert()        
+        await user.insert()  
+        
+        tenant =  Tenants(
+            type = TenantType.PERSONAL,
+            name = data.name,
+            created_by = str(user.id)
+        )    
+        
+        await tenant.insert()
+        
+        membership =  Membership(
+            user_id = str(user.id),
+            tenant_id = str(tenant.id),
+            role = Role.OWNER
+        )
+     
+        await membership.insert()
         return {"success":True, "msg":"Account created successfully"}
     except HTTPException:
         raise
@@ -140,7 +158,21 @@ async def google_auth(data: GoogleAuth, response:Response):
                 subscriptionTier="free"
             )
             await user.insert()
+            
+            tenant =  Tenants(
+                type = TenantType.PERSONAL,
+                name = name,
+                created_by = str(user.id),
+            )
 
+            await tenant.insert()
+            
+            membership =  Membership(
+                user_id = str(user.id),
+                tenant_id = str(tenant.id),
+                role = Role.OWNER
+            )
+            await membership.insert()
         token = jwt.encode({"id":user.id, "email":user.email, "exp":datetime.utcnow()+timedelta(minutes=60)}, SECRET_KEY, algorithm=ALGORITHM)
         response.set_cookie(
             key="auth_token",
