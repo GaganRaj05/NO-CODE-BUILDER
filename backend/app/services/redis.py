@@ -29,6 +29,7 @@ async def init_redis_pool(app: FastAPI):
             socket_connect_timeout=6,
             retry_on_timeout=True,
         )
+        await app.state.redis.ping()
         logger.info("Redis connected successfully")
     except Exception as e:
         logger.error(
