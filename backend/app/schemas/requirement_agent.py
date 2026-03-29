@@ -61,11 +61,15 @@ class FrontendSpec(BaseModel):
     api_integrations: List[Dict[str, Any]]
     styling: Dict[str, Any]
     responsive_design: bool
-    
+   
+class EndpointSchema(BaseModel):
+    path:str
+    method:str
+    response_format:str 
 class BackendSpec(BaseModel):
     framework: str
     database: Dict[str, Any]
-    api_endpoints: List[Dict[str, Any]]
+    api_endpoints: List[EndpointSchema]
     authentication: Dict[str, Any]
     authorization: Dict[str, Any]
     business_logic: List[Dict[str, Any]]

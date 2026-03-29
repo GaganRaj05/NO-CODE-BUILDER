@@ -18,6 +18,7 @@ from app.schemas.requirement_agent import (
 )
 from app.services.context_manager import RequirementsContextManager
 from app.core.config import OPENAI_MODEL
+from app.services.requirements_validator import RequirementValidator
 import redis.asyncio as redis
 
 
@@ -48,8 +49,8 @@ class RequirementsGatheringAgent:
         self.memory_manager = ConversationBufferWindowMemory()
         self.question_bank = self.initialise_question_bank()
         self.agent_executor = self.create_agent_executor()
+        self.validator = RequirementValidator()
     
-        
     def initialise_question_bank(self) -> Dict[str, Question]:
         return {
             "q1": Question(
@@ -120,6 +121,18 @@ class RequirementsGatheringAgent:
     def create_agent_executor(self)->AgentExecutor:
         tools = [
             Tool(
-                name = "validate_requirement",
+                name = "requirement_validator",
+                func = self.validator.validate_context,
+                description = "Validate if the gathered requirements meets industry standards"
+            ),
+            Tool(
+                name = "suggest_next_question",
+                func = self._suggest_next_question_,
+                description = "Suggest next question based on context",
+            ),
+            Tool(
+                name = "generate_spec_preview",
+                func = self.spec_generator.generate_preview,
+                description = "Generate a preview of the current spec",
             )
         ]
