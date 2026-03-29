@@ -4,7 +4,7 @@ from langchain.chat_models import ChatOpenaAI
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
 from langchain.memory import ConversationBufferWindowMemory
-from langchain.prompts import ChatPromptTemplate, MessagePlaceholder
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import BaseMessage, HumanMessage, AIMessage
 from langchain.callbacks.base import BaseCallBackHandler
 from app.schemas.requirement_agent import (
@@ -18,9 +18,12 @@ from app.schemas.requirement_agent import (
 )
 from app.services.context_manager import RequirementsContextManager
 from app.core.config import OPENAI_MODEL
+from app.services.requirement_spec_generator import SpecGenerator
 from app.services.requirements_validator import RequirementValidator
 import redis.asyncio as redis
+import logging
 
+logger = logging.getLogger(__name__)
 
 class StreamingCallbackHandler(BaseCallbackHandler):
     def __init__(self, websocket):
@@ -50,6 +53,7 @@ class RequirementsGatheringAgent:
         self.question_bank = self.initialise_question_bank()
         self.agent_executor = self.create_agent_executor()
         self.validator = RequirementValidator()
+        self.spec_generator = SpecGenerator()
     
     def initialise_question_bank(self) -> Dict[str, Question]:
         return {
@@ -136,3 +140,77 @@ class RequirementsGatheringAgent:
                 description = "Generate a preview of the current spec",
             )
         ]
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", REQUIREMENT_AGENT_PROMPT),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ])
+        agent = create_openai_tools_agent(self.llm,tools, prompt)
+        
+        return AgentExecutor(
+            agent = agent,
+            tools = tools,
+            verbose = True,
+            max_iterations = 3,
+            early_stopping_method = "generate"
+        )
+        
+    async def _suggest_next_question_(self, context: RequirementContext)-> Question:
+        """Implementation for getting dynamic question if the gathered requirements are ambiguous so far"""
+        try:
+            print()
+        except Exception as e:
+            logger.error(f"An error occured while generating dynamic ai question, Error:\n{str(e)}")
+            raise e
+        
+    async def process_message(
+        self, 
+        session_id:str,
+        message:str,
+        user_id:str
+    ) -> Dict[str, Any]:
+        try:
+            context = await self.context_manager.get_context(session_id)
+            if not context:
+                context = RequirementContext(session_id = session_id)
+                context.pending_questions = List[self.question_bank.keys()]
+            
+            await self.memory_manager.add_message(
+                session_id, user_id, "user", message
+            )
+            
+            extracted = await self._extract_requirements(message, context)
+            context = await self._update_context(context, extracted)
+            
+            validation_result = await self.validator.validate_context(context)
+            if validation_result["is_complete"]:
+                spec = await self.spec_generator.generate_complete_spec(context)
+                response = {
+                    "type":"complete",
+                    "message":"I've gathered all requirements. Here's your specification Document:",
+                    "spec": spec.dict(),
+                    "spec_json":spec.json(indent = 2)
+                }
+            else:
+                next_question = await self._get_next_question(context, validation_result)
+                response = {
+                    "type":"question",
+                    "question_id":next_question.id,
+                    "question":next_question.question,
+                    "options": next_question.options,
+                    "progress":self._calculate_progress(context)
+                }
+                context.current_question_id = next_question.id
+                
+            await self.context_manager.save_context(session_id, context)
+            
+            await self.memory_manager.add_message(
+                session_id, user_id, "agent", response["message"] if "message" in response else response["question"]
+            )
+            return response
+        except Exception as e:
+            logger.error(f"An error occured while executing agent action, Error:\n{str(e)}")
+            raise e
+    

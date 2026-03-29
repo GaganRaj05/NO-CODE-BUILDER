@@ -126,7 +126,7 @@ class SpecGenerator:
                 constraints = requirements.get('constraints', []),
                 assumptions = requirements.get('assumptions', [])
             )
-            
+            return complete_spec
         except Exception as e:
             logger.error(f"An error occured while generating complete spec:\n{str(e)}")
             raise e
