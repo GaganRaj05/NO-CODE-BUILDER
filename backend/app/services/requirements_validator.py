@@ -4,7 +4,7 @@ from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.output_parsers import PydanticOutputParser, RetryWithErrorOutputParser
 from app.core.config import OPENAI_MODEL
-from app.schemas.requirement_agent import RequirementValidatorOutput, RequirementContext, AnsweredQuestion
+from app.schemas.requirement_agent import RequirementValidatorOutput, RequirementContext, AnsweredQuestion, QuestionType
 import logging
 import json
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class RequirementValidator:
                 "format_instructions":self.parser.get_format_instructions()
             },
             template = """
-            You are validating a software's gathered requirement context.  
+            You are validating a context of software's gathered requirement.  
             
             Context: 
             {context_json}
@@ -71,7 +71,7 @@ class RequirementValidator:
             issues = []
             
             answer_map = {
-                a.question_id for a in answers
+                a.question_id:a for a in answers
             }
             for q_id, answered in answer_map.items():
                 question = self.question_bank.get(q_id)
@@ -85,24 +85,24 @@ class RequirementValidator:
                                 issues.append(
                                     f"{q_id} invalid: depends on {dep_q_id}"f"being one of {valid_values}, but got {dep_answer.answer}"
                                 )
-                if question.type == "MULTIPLE_CHOICE":
+                if question.type == QuestionType.MULTIPLE_CHOICE:
                     if answered.answer not in (question.options or []):
                         issues.append(
                             f"{q_id} invalid option:{answered.answer}"
                         )
-                elif question.type.name == "BOOLEAN":
+                elif question.type.name == QuestionType.BOOLEAN:
                     if not isinstance(answered.answer, bool):
                         issues.append(
                             f"{q_id} expects boolean"
                         )
 
-                elif question.type.name == "NUMERIC":
+                elif question.type.name == QuestionType.NUMERIC:
                     if not isinstance(answered.answer, (int, float)):
                         issues.append(
                             f"{q_id} expects numeric"
                         )
 
-                elif question.type.name == "ARRAY":
+                elif question.type.name == QuestionType.ARRAY:
                     if not isinstance(answered.answer, list):
                         issues.append(
                             f"{q_id} expects array"
@@ -141,11 +141,11 @@ class RequirementValidator:
                 default=str
             )
             
-            raw_ouput = await self.validation_chain.arun(
+            raw_output = await self.validation_chain.arun(
                 context_json = context_json
             )
             llm_result = self.retry_parser.parse_with_prompt(
-                raw_ouput,
+                raw_output,
                 self.validaton_prompt.format(context_json = context_json)
             )
             is_complete = (len(missing) == 0 and len(inconsistencies) == 0)
