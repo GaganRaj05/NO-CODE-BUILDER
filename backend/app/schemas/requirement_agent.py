@@ -24,6 +24,7 @@ class Question(BaseModel):
     type:QuestionType
     options: Optional[List[str]] = None
     required: bool = True
+    depends_on: Optional[Dict[str, List[str]]] = None
 
 class AnsweredQuestion(BaseModel):
     question_id:str
@@ -85,3 +86,11 @@ class CompleteSpec(BaseModel):
     integration_points: List[Dict[str, Any]]
     constraints: List[str]
     assumptions: List[str]
+
+class RequirementValidationResult(BaseModel):
+    is_complete: bool
+    missing_requirements: List[str]
+    inconsistencies: List[str]
+    issues: List[str]
+    suggestions: List[str]
+    confidence_score: float        
