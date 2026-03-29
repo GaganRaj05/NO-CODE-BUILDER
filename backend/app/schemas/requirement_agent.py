@@ -43,6 +43,13 @@ class RequirementContext(BaseModel):
     confidence_score: Dict[str, float] = Field(default_factory = dict)
     clarrifications_needed: List[Dict[str, Any]] = Field(default_factory = list)
     
+class RequirementExtraction(BaseModel):
+    frontend: Optional[List[str]] = []
+    backend: Optional[List[str]] = []
+    database: Optional[List[str]] = []
+    security: Optional[List[str]] = []
+    clarifications: Optional[List[str]] = []
+    
 class Page(BaseModel):
     name: str
     route: str
