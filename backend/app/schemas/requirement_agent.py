@@ -37,13 +37,13 @@ class RequirementContext(BaseModel):
     user_id: str
     session_id:str
     current_question_id: Optional[str] = None
-    answered_questions: List[AnsweredQuestion] = Field(default_factory=list)
-    pending_questions: List[Question] = Field(default_factory=list)
-    last_updated: datetime = Field(default_factory = datetime.utcnow()) 
+    answered_questions: Dict[str,AnsweredQuestion] = Field(default_factory=dict)
+    pending_questions: List[str] = Field(default_factory=list)
+    last_updated: datetime = Field(default_factory = datetime.utcnow) 
     confidence_score: Dict[str, float] = Field(default_factory = dict)
-    clarrifications_needed: List[Dict[str, Any]] = Field(default_factory = list)
+    clarifications_needed: List[Dict[str, Any]] = Field(default_factory = list)
     
-class RequirementExtraction(BaseModel):
+class RequirementExtractor(BaseModel):
     frontend: Optional[List[str]] = []
     backend: Optional[List[str]] = []
     database: Optional[List[str]] = []

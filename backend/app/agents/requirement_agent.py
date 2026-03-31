@@ -1,6 +1,6 @@
 import asyncio
 from typing import Dict, Any, Optional, List
-from langchain.chat_models import ChatOpenaAI
+from langchain.chat_models import ChatOpenAI
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import Tool
 from langchain.memory import ConversationBufferWindowMemory
@@ -17,7 +17,9 @@ from app.schemas.requirement_agent import (
     RequirementCategory,
     QuestionType,
     RequirementExtractor,
+    AnsweredQuestion
 )
+from app.agents.prompts import REQUIREMENT_AGENT_PROMPT
 from app.services.context_manager import RequirementsContextManager
 from app.core.config import OPENAI_MODEL
 from app.services.requirement_spec_generator import SpecGenerator
@@ -48,7 +50,7 @@ class RequirementsGatheringAgent:
         temperature: float = 0.6,
         websocket=None,
     ):
-        self.llm = ChatOpenaAI(
+        self.llm = ChatOpenAI(
             model=llm_model,
             temperature=temperature,
             streaming=True,
@@ -95,14 +97,14 @@ class RequirementsGatheringAgent:
         self.memory_manager = ConversationBufferWindowMemory()
         self.question_bank = self.initialise_question_bank()
         self.agent_executor = self.create_agent_executor()
-        self.validator = RequirementValidator()
+        self.validator = RequirementValidator(question_bank=self.question_bank)
         self.spec_generator = SpecGenerator()
 
     def initialise_question_bank(self) -> Dict[str, Question]:
         return {
             "q1": Question(
                 id="q1",
-                text="What type of application are you building?",
+                question="What type of application are you building?",
                 category=RequirementCategory.FRONTEND,
                 type=QuestionType.MULTIPLE_CHOICE,
                 options=[
@@ -116,7 +118,7 @@ class RequirementsGatheringAgent:
             ),
             "q2": Question(
                 id="q2",
-                text="What frontend framework do you prefer?",
+                question="What frontend framework do you prefer?",
                 category=RequirementCategory.FRONTEND,
                 type=QuestionType.MULTIPLE_CHOICE,
                 options=["React", "Vue.js", "Angular", "Svelte", "None"],
@@ -125,7 +127,7 @@ class RequirementsGatheringAgent:
             ),
             "q3": Question(
                 id="q3",
-                text="What backend framework will you use?",
+                question="What backend framework will you use?",
                 category=RequirementCategory.BACKEND,
                 type=QuestionType.MULTIPLE_CHOICE,
                 options=[
@@ -142,7 +144,7 @@ class RequirementsGatheringAgent:
             ),
             "q4": Question(
                 id="q4",
-                text="What database system do you plan to use?",
+                question="What database system do you plan to use?",
                 category=RequirementCategory.DATABASE,
                 type=QuestionType.MULTIPLE_CHOICE,
                 options=[
@@ -157,11 +159,10 @@ class RequirementsGatheringAgent:
             ),
             "q5": Question(
                 id="q5",
-                text="Describe the main user authentication method",
+                question="Describe the main user authentication method",
                 category=RequirementCategory.SECURITY,
                 type=QuestionType.TEXT,
                 required=True,
-                validation={"min_length": 10},
             ),
         }
 
@@ -218,16 +219,20 @@ class RequirementsGatheringAgent:
         try:
             context = await self.context_manager.get_context(session_id)
             if not context:
-                context = RequirementContext(session_id=session_id)
-                context.pending_questions = List[self.question_bank.keys()]
+                context = RequirementContext(
+                    session_id=session_id,
+                    user_id=user_id,
+                    pending_questions=list(self.question_bank.keys()),
+                )
+                context.pending_questions = list(self.question_bank.keys())
 
-            await self.memory_manager.add_message(session_id, user_id, "user", message)
+            await self.memory_manager.add_user_message(message)
 
             extracted = await self._extract_requirements(message, context)
-            context = await self._update_context(context, extracted)
+            context = await self._update_context(context, extracted, message)
 
             validation_result = await self.validator.validate_context(
-                context, self.question_bank
+                context
             )
             if validation_result["is_complete"]:
                 spec = await self.spec_generator.generate_complete_spec(context)
@@ -252,11 +257,8 @@ class RequirementsGatheringAgent:
 
             await self.context_manager.save_context(session_id, context)
 
-            await self.memory_manager.add_message(
-                session_id,
-                user_id,
-                "agent",
-                response["message"] if "message" in response else response["question"],
+            await self.memory_manager.add_ai_message(
+                message=response["message"] if "message" in response else response["question"],
             )
             return response
         except Exception as e:
@@ -270,58 +272,74 @@ class RequirementsGatheringAgent:
     ) -> RequirementExtractor:
         try:
             answered_questions = json.dumps(
-                [
-                    {"category": a.category, "question": a.question, "answer": a.answer}
-                    for a in context.answered_questions
-                ],
-                separators=(",", ":"),  
-                default=str
+                [q.model_dump() for q in context.answered_questions.values()],
+                default=str,
             )
 
             raw_output = await self.extraction_chain.arun(
                 answered_questions=answered_questions, message=message
             )
+
             parsed = self.extraction_retry_parser.parse_with_prompt(
                 raw_output,
                 self.extraction_prompt.format(
                     answered_questions=answered_questions, message=message
                 ),
             )
+
             return parsed
         except Exception as e:
             logger.error(
                 f"An error occured while extracting requirements, Error\n{str(e)}"
             )
             raise e
-        
+
     async def _update_context(
-        self, 
-        context: RequirementContext,
-        extracted: RequirementExtractor
-    )-> RequirementContext:
+        self, context: RequirementContext, extracted: RequirementExtractor, user_message:str
+    ) -> RequirementContext:
         try:
-            current_question = context.current_question_id
-            if current_question and current_question in self.question_bank:
-                context.answered_questions[current_question] = extracted
-                context.pending_questions.remove(current_question)
-            return context            
+            q_id = context.current_question_id
+
+            if q_id and q_id in self.question_bank:
+                question = self.question_bank[q_id]
+
+                answer = AnsweredQuestion(
+                    question_id=q_id,
+                    question=question.question,
+                    category=question.category,
+                    type=question.type,
+                    answer=user_message  
+                )
+
+                context.answered_questions[q_id] = answer
+
+                if q_id in context.pending_questions:
+                    context.pending_questions.remove(q_id)
+
+            if extracted.clarifications:
+                context.clarifications_needed.extend(extracted.clarifications)
+
+            return context
         except Exception as e:
             logger.error(f"Failed to update context, Error:\n{str(e)}")
             raise e
-        
+
     async def _get_next_question(
-        self,
-        context: RequirementContext,
-        validation_result: Dict[str, Any]
-    )-> Question:
+        self, context: RequirementContext, validation_result: Dict[str, Any]
+    ) -> Question:
         try:
             answered_questions = json.dumps(
                 [
-                    {"question_id":a.question_id,"category": a.category, "question": a.question, "answer": a.answer}
-                    for a in context.answered_questions
+                    {
+                        "question_id": a.question_id,
+                        "category": a.category,
+                        "question": a.question,
+                        "answer": a.answer,
+                    }
+                    for a in context.answered_questions.values()
                 ],
-                separators=(",", ":"),  
-                default=str
+                separators=(",", ":"),
+                default=str,
             )
             decision_prompt = f"""
                 Based on answered questions: {answered_questions}
@@ -335,17 +353,21 @@ class RequirementsGatheringAgent:
             next_question_id = response.strip()
             if next_question_id.lower() in self.question_bank:
                 return self.question_bank[next_question_id]
-            
+
             return self.question_bank[context.pending_questions[0]]
         except Exception as e:
-            logger.error(f"An error occured while fetching the next question, Error:\n{str(e)}")
+            logger.error(
+                f"An error occured while fetching the next question, Error:\n{str(e)}"
+            )
             raise e
 
-    async def calculate_progress(self, context: RequirementContext) ->float:
+    def _calculate_progress(self, context: RequirementContext) -> float:
         try:
             total = len(self.question_bank)
             answered_questions = len(context.answered_questions)
-            return (answered_questions/total) * 100
+            return (answered_questions / total) * 100
         except Exception as e:
-            logger.error(f"An error occured while calculating progress, Error:\n{str(e)}")
+            logger.error(
+                f"An error occured while calculating progress, Error:\n{str(e)}"
+            )
             raise e

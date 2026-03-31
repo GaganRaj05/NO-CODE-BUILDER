@@ -4,7 +4,7 @@ from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.output_parsers import PydanticOutputParser, RetryWithErrorOutputParser
 from app.core.config import OPENAI_MODEL
-from app.schemas.requirement_agent import RequirementValidatorOutput, RequirementContext, AnsweredQuestion, QuestionType
+from app.schemas.requirement_agent import RequirementValidationResult, RequirementContext, AnsweredQuestion, QuestionType
 import logging
 import json
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ class RequirementValidator:
     def __init__(self, question_bank: Dict[str, Any]):
         self.llm = ChatOpenAI(model = OPENAI_MODEL, temperature = 0)
         self.parser = PydanticOutputParser(
-            pydantic_object = RequirementValidatorOutput
+            pydantic_object = RequirementValidationResult
         )
         self.validaton_prompt = PromptTemplate(
             input_variables = ["context_json"],
@@ -53,13 +53,10 @@ class RequirementValidator:
     def _check_required_questions(self, context:RequirementContext)-> List[str]:
         try:
             missing = []
-            answered_ids = {
-                q.question_id for q in context.answered_questions
-            }
+            answered_ids = set(context.answered_questions.keys())
             for q_id, question in self.question_bank.items():
                 if question.required and q_id not in answered_ids:
-                    missing.append(f"{q_id}: {question.text}")
-                
+                    missing.append(f"{q_id}: {question.question}")
             return missing
         except Exception as e:
             logger.error(f"Requirements Validation service ran into an error:\n{str(e)}")
@@ -90,47 +87,32 @@ class RequirementValidator:
                         issues.append(
                             f"{q_id} invalid option:{answered.answer}"
                         )
-                elif question.type.name == QuestionType.BOOLEAN:
+                elif question.type == QuestionType.BOOLEAN:
                     if not isinstance(answered.answer, bool):
                         issues.append(
                             f"{q_id} expects boolean"
                         )
 
-                elif question.type.name == QuestionType.NUMERIC:
+                elif question.type == QuestionType.NUMERIC:
                     if not isinstance(answered.answer, (int, float)):
                         issues.append(
                             f"{q_id} expects numeric"
                         )
 
-                elif question.type.name == QuestionType.ARRAY:
+                elif question.type == QuestionType.ARRAY:
                     if not isinstance(answered.answer, list):
                         issues.append(
                             f"{q_id} expects array"
                         )
-
-            q1 = answer_map.get("q1")
-            q2 = answer_map.get("q2")
-            q3 = answer_map.get("q3")
-
-            if q1 and q1.answer == "API Service" and q2:
-                issues.append(
-                    "Frontend framework should not be defined for API-only service"
-                )
-
-            if q1 and q1.answer == "Mobile App" and q2:
-                if q2.answer not in ["React Native", "Flutter", "None"]:
-                    issues.append(
-                        "Selected frontend framework not suitable for mobile app"
-                    )
 
             return issues        
         except Exception as e:
             logger.error(f"Requirements Validation Service ran into an error:\n{str(e)}")
             raise e         
 
-    async def validate_context(self, context:RequirementContext) -> Dict[str, Any]:
+    async def validate_context(self, context:RequirementContext) -> RequirementValidationResult:
         try:
-            answers = context.answered_questions
+            answers = list(context.answered_questions.values())
 
             missing = self._check_required_questions(context)
 
